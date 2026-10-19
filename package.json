@@ -1,0 +1,17 @@
+{
+  "name": "nfbStremio",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "vercel --prod",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "wangqifei.eu.org",
+  "license": "ISC",
+  "devDependencies": {
+        "vercel": "^37.0.0"
+  }
+}
