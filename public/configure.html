@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NFB Addon 配置向导</title>
+  <!-- 使用 NFB 官方高清图标 -->
+  <link rel="icon" type="image/png" sizes="180x180" href="https://www.nfb.ca/static/img/apple-touch-icon.png">
+  <link rel="stylesheet" href="/configure.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <img src="https://www.nfb.ca/static/img/apple-touch-icon.png" alt="NFB Logo">
+      </div>
+      <h1>NFB Films</h1>
+      <p class="subtitle">National Film Board of Canada · Stremio Addon</p>
+    </header>
+
+    <!-- 频道选择区 -->
+    <section class="card">
+      <h2><span class="icon">📺</span> 选择默认频道</h2>
+      <p class="hint">勾选你想在 Stremio 中显示的目录。</p>
+      
+      <div class="channel-grid" id="presetChannels">
+        <label class="channel-item"><input type="checkbox" value="home_new_releases_en" checked><span>New Releases</span></label>
+        <label class="channel-item"><input type="checkbox" value="halloween-movies" checked><span>Halloween Movies</span></label>
+        <label class="channel-item"><input type="checkbox" value="best_of_ani" checked><span>Best of Animation</span></label>
+        <label class="channel-item"><input type="checkbox" value="classics" checked><span>Classics</span></label>
+        <label class="channel-item"><input type="checkbox" value="binge-worthy-series" checked><span>Binge-worthy Series</span></label>
+        <label class="channel-item"><input type="checkbox" value="funny-films" checked><span>Funny Films</span></label>
+        <label class="channel-item"><input type="checkbox" value="hot_topics" checked><span>Hot Topics</span></label>
+        <label class="channel-item"><input type="checkbox" value="spotlight-canadian-musicians" checked><span>Canadian Musicians</span></label>
+        <label class="channel-item"><input type="checkbox" value="the-great-lakes" checked><span>The Great Lakes</span></label>
+        <label class="channel-item"><input type="checkbox" value="classic-docs" checked><span>Classic Docs</span></label>
+        <label class="channel-item"><input type="checkbox" value="the_green_channel" checked><span>The Green Channel</span></label>
+      </div>
+    </section>
+
+    <!-- 自定义选项 -->
+    <section class="card">
+      <h2><span class="icon">➕</span> 自定义频道</h2>
+      <p class="hint">如果你知道其他 Channel 的 slug，请以英文逗号分隔填入（例如：the_great_lakes, hot_topics）。</p>
+      <input type="text" id="customChs" placeholder="输入自定义 Channel 名称..." spellcheck="false">
+    </section>
+
+    <!-- API Keys -->
+    <section class="card">
+      <h2><span class="icon">🔑</span> 高级配置 (可选)</h2>
+      <p class="hint">留空则使用内置的公共 Key 或环境变量。</p>
+      
+      <div class="form-group">
+        <label for="tmdbKey">TMDB API Key</label>
+        <input type="password" id="tmdbKey" placeholder="用于 IMDb 影片映射">
+      </div>
+      <div class="form-group">
+        <label for="osKey">OpenSubtitles API Key</label>
+        <input type="password" id="osKey" placeholder="用于中英文字幕拉取">
+      </div>
+      <div class="form-group">
+        <label for="subdlKey">SubDL API Key</label>
+        <input type="password" id="subdlKey" placeholder="用于 SubDL 字幕拉取">
+      </div>
+    </section>
+
+    <!-- 操作区 -->
+    <section class="card action-card">
+      <button id="generateBtn" class="btn-primary">生成安装链接</button>
+      <button id="resetBtn" class="btn-secondary">重置为默认</button>
+    </section>
+
+    <!-- 结果区 -->
+    <section class="card result-card" id="resultCard">
+      <h2><span class="icon">🚀</span> 安装 Addon</h2>
+      <div class="url-box">
+        <input type="text" id="manifestUrl" readonly>
+        <button id="copyBtn">📋</button>
+      </div>
+      <div class="actions">
+        <a id="installBtn" class="btn-primary" href="#">安装到 Stremio</a>
+        <button id="webInstallBtn" class="btn-secondary">Web 安装</button>
+      </div>
+      <details class="config-preview">
+        <summary>查看配置参数</summary>
+        <pre id="configPreview"></pre>
+      </details>
+    </section>
+
+    <footer>
+      <p>Made with ❤️ for Stremio Community</p>
+      <p>wangqifei.eu.org</p>
+    </footer>
+  </div>
+  <script src="/configure.js"></script>
+</body>
+</html>

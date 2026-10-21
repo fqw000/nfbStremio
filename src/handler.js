@@ -1,33 +1,21 @@
 import { getManifest } from './manifest.js';
 import { CONFIG } from './config.js';
-import { resolveId, parseDuration, buildImageUrl } from './helper.js';
-import { fetchSearch, fetchCatalog, fetchMetaHtml, fetchStream } from './adapter.js';
-import { extractJsonLd } from './parser.js';
-import { resolveImdbToSlug, resolveSlugToImdb } from './resolver.js';
+import { parseDuration, buildImageUrl } from './helper.js';
+import * as Adapter from './adapter.js';
 import { getSubtitles } from './subtitles.js';
+import { resolveImdbToSlug, resolveSlugToImdb } from './resolver.js';
 
 function jsonResponse(data, cacheSeconds = 0) {
-  const headers = {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-  };
-  if (cacheSeconds > 0) {
-    headers['Cache-Control'] = `public, s-maxage=${cacheSeconds}`;
-  }
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' };
+  if (cacheSeconds > 0) headers['Cache-Control'] = `public, s-maxage=${cacheSeconds}`;
   return new Response(JSON.stringify(data, null, 2), { headers });
 }
 
-function inferCatalogType(item) {
-  if (item.seasons_count > 0) return 'series';
-  if (/\/collection\//.test(item.availability?.resource_url || '')) return 'collection';
-  return 'movie';
-}
-
-export async function handleRequest(request, env, ctx) {
+export async function handleRequest(request) {
   const url = new URL(request.url);
   const pathname = url.pathname;
+  const pattern = 'https://assets.nfbcdn.ca/medias/norman/{path}?w={width}&h={height}';
 
-  // 解析用户配置 cfg
   const cfgB64 = url.searchParams.get('cfg');
   if (cfgB64) {
     try {
@@ -36,32 +24,30 @@ export async function handleRequest(request, env, ctx) {
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       globalThis.__USER_CONFIG = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-    } catch (err) {
-      globalThis.__USER_CONFIG = {};
-    }
-  } else {
-    globalThis.__USER_CONFIG = {};
-  }
+    } catch (err) { globalThis.__USER_CONFIG = {}; }
+  } else { globalThis.__USER_CONFIG = {}; }
 
   console.log(`[Worker] 📨 ${request.method} ${pathname}${url.search}`);
 
   if (pathname === '/manifest.json') {
-    return jsonResponse(getManifest(), 0);
+    const m = getManifest();
+    console.log(`[Manifest] ✅ 返回 ${m.catalogs.length} 个目录`);
+    return jsonResponse(m, 0);
   }
 
-  // 2. Catalog 与 Search
-  const catalogMatch = pathname.match(/^\/catalog\/movie\/([^/]+)(?:\/([^/]+))?\.json$/);
+  // ================= Catalog =================
+  const catalogMatch = pathname.match(/^\/catalog\/(movie|series)\/([^/]+)(?:\/([^/]+))?\.json$/);
   if (catalogMatch) {
-    // ... (保持阶段 2 的代码不变) ...
-    const catalogId = catalogMatch[1];
-    const extraPath = catalogMatch[2] || '';
-
+    const type = catalogMatch[1]; 
+    const catalogId = catalogMatch[2];
+    const extraPath = catalogMatch[3] || '';
+    
     const extras = {};
     if (extraPath) {
-      for (const part of extraPath.split('&')) {
+      extraPath.split('&').forEach(part => {
         const [k, v] = part.split('=');
         if (k && v) extras[k] = decodeURIComponent(v);
-      }
+      });
     }
     for (const key of ['skip', 'search']) {
       const qv = url.searchParams.get(key);
@@ -72,182 +58,205 @@ export async function handleRequest(request, env, ctx) {
     const page = Math.floor(skip / 20) + 1;
     const query = extras.search;
 
-    let metas = [];
+    console.log(`[Catalog] 🔍 解析: type=${type}, id=${catalogId}, page=${page}, query="${query || ''}"`);
+
+    let items = [];
+    let isSearch = false;
 
     if (query) {
-      console.log(`[Catalog] 🔍 搜索: "${query}", page=${page}`);
-      const res = await fetchSearch(query, page, 20);
-      if (res && res.items) {
-        const pattern = res.meta?.thumbnail_pattern;
-        metas = res.items
-          .filter(item => item.is_streamable_for_free)
-          .map(item => ({
-            id: `nfb_${item.slug}`,
-            type: 'movie',
-            name: item.title,
-            poster: buildImageUrl(pattern, item.thumbnail_path, 300, 200),
-            posterShape: 'landscape',
-            description: item.description?.en || '',
-            releaseInfo: item.year ? String(item.year) : '',
-            runtime: parseDuration(item.time)
-          }));
+      isSearch = true;
+      if (type === 'movie') {
+        const res = await Adapter.fetchFilmSearch(query, page);
+        items = res?.items || [];
+      } else {
+        const [sRes, cRes] = await Promise.all([
+          Adapter.fetchSeriesSearch(query, page),
+          Adapter.fetchCollectionsSearch(query, page)
+        ]);
+        items = [...(sRes?.items || []), ...(cRes?.items || [])];
+        const seen = new Set();
+        items = items.filter(i => !seen.has(i.slug) && seen.add(i.slug));
       }
     } else {
-      console.log(`[Catalog] 📂 浏览目录, page=${page}`);
-      const res = await fetchCatalog(page, 20);
-      if (res && res.items) {
-        const pattern = res.meta?.mixed_media?.thumbnail_url?.film;
-        metas = res.items
-          .filter(item => item.availability?.is_public)
-          .map(item => {
-            const imgPath = item.thumbnail || item.jacket;
-            return {
-              id: `nfb_${item.slug}`,
-              type: inferCatalogType(item),
-              name: item.title,
-              poster: buildImageUrl(pattern, imgPath, 300, 200),
-              posterShape: 'landscape',
-              releaseInfo: item.year ? String(item.year) : '',
-              runtime: parseDuration(item.duration)
-            };
-          });
+      let res;
+      if (catalogId.startsWith('nfb_ch_')) {
+        const chName = catalogId.replace('nfb_ch_', '').replace('_movies', '').replace('_series', '');
+        res = await Adapter.fetchChannel(chName, page);
+      } else {
+        res = await Adapter.fetchTrending(page);
       }
+      items = res?.data || res?.items || [];
     }
+
+    const filtered = items.filter(item => {
+      if (isSearch) return true;
+      const isMovie = item.type === 'film' || item.category === 'film' || (item.url && item.url.includes('/film/'));
+      const isSeries = item.type === 'series' || item.type === 'collection' || item.category === 'series' || item.category === 'collection' || (item.url && (item.url.includes('/series/') || item.url.includes('/collection/')));
+      return type === 'movie' ? isMovie : isSeries;
+    });
+
+    const metas = filtered.map(item => {
+      let rawType = item.type || item.category;
+      if (!rawType) {
+        if (item.url && item.url.includes('/collection/')) rawType = 'collection';
+        else if (item.url && item.url.includes('/series/')) rawType = 'series';
+        else rawType = type === 'movie' ? 'film' : 'series';
+      }
+      const thumb = item.thumbnail || item.thumbnail_path;
+      return {
+        id: `nfb_${rawType}_${item.slug}`,
+        type: type,
+        name: item.title,
+        poster: thumb ? (thumb.startsWith('http') ? thumb : buildImageUrl(pattern, thumb, 300, 200)) : '',
+        posterShape: 'landscape',
+        releaseInfo: item.year ? String(item.year) : '',
+        runtime: parseDuration(item.duration || item.time)
+      };
+    });
+
+    console.log(`[Catalog] ✅ 返回 ${metas.length} 条结果`);
     return jsonResponse({ metas }, 300);
   }
 
-  // 3. Meta (详情)
-  const metaMatch = pathname.match(/^\/meta\/movie\/([^/]+)\.json$/);
+  // ================= Meta =================
+  const metaMatch = pathname.match(/^\/meta\/(movie|series)\/([^/]+)\.json$/);
   if (metaMatch) {
-    const rawId = decodeURIComponent(metaMatch[1]);
-    const parsedId = resolveId(rawId);
+    const type = metaMatch[1];
+    const rawId = decodeURIComponent(metaMatch[2]);
 
-    let slug = parsedId.slug;
-
-    // ★ 处理 tt 映射
-    if (parsedId.kind === 'imdb') {
-      slug = await resolveImdbToSlug(parsedId.imdbId);
-      if (!slug) {
-        console.log(`[Meta] ⚠️ 无法映射 ${parsedId.imdbId} 到 NFB slug`);
+    let slug = rawId;
+    let category = 'film';
+    
+    if (rawId.startsWith('tt')) {
+      console.log(`[Meta] 🔍 检测到 IMDb ID: ${rawId}，开始映射...`);
+      const mappedSlug = await resolveImdbToSlug(rawId);
+      if (!mappedSlug) {
+        console.log(`[Meta] ❌ IMDb 映射失败: ${rawId}`);
         return jsonResponse({ meta: null });
       }
+      slug = mappedSlug;
+      category = 'film';
+    } else if (rawId.startsWith('nfb_')) {
+      const parts = rawId.split('_');
+      category = parts[1];
+      slug = parts.slice(2).join('_');
     }
 
-    console.log(`[Meta] 📄 获取详情: slug=${slug}`);
-    const html = await fetchMetaHtml(slug);
-    if (!html) return jsonResponse({ meta: null });
+    console.log(`[Meta] 🔍 解析: type=${type}, category=${category}, slug=${slug}`);
 
-    const jsonLd = extractJsonLd(html);
-    if (!jsonLd || !jsonLd.name) return jsonResponse({ meta: null });
+    let data = null;
+    if (category === 'film') data = await Adapter.fetchFilmMeta(slug);
+    else if (category === 'series') data = await Adapter.fetchSeriesMeta(slug);
+    else if (category === 'collection') data = await Adapter.fetchCollectionMeta(slug);
 
-    let year = jsonLd.uploadDate ? String(jsonLd.uploadDate).slice(0, 4) : '';
-    let bgUrl = jsonLd.thumbnailUrl ? jsonLd.thumbnailUrl.replace(/\?.*$/, '') + '?w=1920&h=1080' : '';
+    if (!data) {
+      console.log(`[Meta] ❌ 数据为空`);
+      return jsonResponse({ meta: null });
+    }
 
     const meta = {
-      id: rawId, // ★ 必须原样返回用户的 ID（tt 或 nfb_）
-      type: 'movie',
-      name: jsonLd.name,
-      poster: jsonLd.image || '',
-      posterShape: 'poster',
-      background: bgUrl,
-      description: jsonLd.description || '',
-      releaseInfo: year,
-      year: year,
-      runtime: parseDuration(jsonLd.duration),
-      director: Array.isArray(jsonLd.director)
-        ? jsonLd.director.map(d => typeof d === 'string' ? d : d.name).filter(Boolean)
-        : (jsonLd.director ? [jsonLd.director.name] : [])
+      id: rawId,
+      type: type,
+      name: data.title,
+      poster: data.image ? (data.image.startsWith('http') ? data.image : buildImageUrl(pattern, data.image, 400, 600)) : (data.jacket ? buildImageUrl(pattern, data.jacket, 400, 600) : ''),
+      background: data.thumbnailUrl ? data.thumbnailUrl.replace(/\?.*$/, '') + '?w=1920&h=1080' : (data.thumbnail ? buildImageUrl(pattern, data.thumbnail, 1920, 1080) : ''),
+      description: data.description || '',
+      releaseInfo: data.year ? String(data.year) : '',
+      year: data.year ? String(data.year) : '',
+      runtime: parseDuration(data.duration),
     };
 
-    // ★ 必须匹配当前的 rawId
-    meta.videos = [{ id: rawId, title: meta.name }];
+    if (data.seasons && data.seasons[0] && data.seasons[0].episodes) {
+      meta.videos = data.seasons[0].episodes.map(ep => ({
+        id: `nfb_film_${ep.slug}`,
+        title: ep.title,
+        season: 1,
+        episode: ep.number || 1,
+        released: `${ep.year || data.year}-01-01T00:00:00Z`,
+        thumbnail: ep.thumbnail ? buildImageUrl(pattern, ep.thumbnail, 300, 200) : ''
+      }));
+    } else {
+      meta.videos = [{ id: rawId, title: data.title, season: 1, episode: 1 }];
+    }
 
+    console.log(`[Meta] ✅ 返回详情: ${meta.name}, videos=${meta.videos.length}`);
     return jsonResponse({ meta }, 600);
   }
 
-  // 4. Stream (播放地址)
-  const streamMatch = pathname.match(/^\/stream\/movie\/([^/]+)\.json$/);
+  // ================= Stream =================
+  const streamMatch = pathname.match(/^\/stream\/(movie|series)\/([^/]+)\.json$/);
   if (streamMatch) {
-    const rawId = decodeURIComponent(streamMatch[1]);
-    const parsedId = resolveId(rawId);
-
-    let slug = parsedId.slug;
-
-    // ★ 处理 tt 映射
-    if (parsedId.kind === 'imdb') {
-      slug = await resolveImdbToSlug(parsedId.imdbId);
-      if (!slug) {
-        console.log(`[Stream] ⚠️ 无法映射 ${parsedId.imdbId} 到 NFB slug`);
-        return jsonResponse({ streams: [] });
-      }
+    const rawId = decodeURIComponent(streamMatch[2]);
+    if (rawId === 'undefined') {
+      return jsonResponse({ streams: [] });
     }
+    let slug = rawId;
+    if (rawId.startsWith('nfb_')) {
+      slug = rawId.split('_').slice(2).join('_');
+    } else if (rawId.startsWith('tt')) {
+      const mappedSlug = await resolveImdbToSlug(rawId);
+      if (!mappedSlug) return jsonResponse({ streams: [] });
+      slug = mappedSlug;
+    }
+    
+    console.log(`[Stream] 🔍 解析: slug=${slug}`);
 
-    console.log(`[Stream] ▶️ 获取播放地址: slug=${slug}`);
-    const data = await fetchStream(slug);
-    if (!data || !data.hls) return jsonResponse({ streams: [] });
+    const data = await Adapter.fetchStream(slug);
+    if (!data || !data.hls) {
+      console.log(`[Stream] ❌ 无播放源`);
+      return jsonResponse({ streams: [] });
+    }
 
     const streams = [];
-    if (data.hls) {
-      streams.push({
-        name: 'NFB', title: 'HLS / Auto',
-        url: data.hls.split('#')[0],
-        behaviorHints: { bingeGroup: `nfb-${slug}` }
-      });
-    }
-    if (data.hls_dv) {
-      streams.push({
-        name: 'NFB', title: 'HLS / Dolby Vision',
-        url: data.hls_dv.split('#')[0],
-        behaviorHints: { bingeGroup: `nfb-${slug}` }
-      });
-    }
+    if (data.hls) streams.push({ name: 'NFB', title: 'HLS / Auto', url: data.hls.split('#')[0] });
+    if (data.hls_dv) streams.push({ name: 'NFB', title: 'HLS / Dolby Vision', url: data.hls_dv.split('#')[0] });
 
+    console.log(`[Stream] ✅ 返回 ${streams.length} 个播放源`);
     return jsonResponse({ streams }, 600);
   }
 
-  // 5. Subtitles (字幕)
-  const subMatch = pathname.match(/^\/subtitles\/movie\/([^/]+)\.json$/);
+  // ================= Subtitles =================
+  const subMatch = pathname.match(/^\/subtitles\/(movie|series)\/([^/]+)\.json$/);
   if (subMatch) {
-    const rawId = decodeURIComponent(subMatch[1]);
-    const parsedId = resolveId(rawId);
+    const rawId = decodeURIComponent(subMatch[2]);
+    console.log(`[Subtitles] 🔍 解析: id=${rawId}`);
 
     let imdbId = null;
 
-    if (parsedId.kind === 'imdb') {
-      imdbId = parsedId.imdbId;
-    } else {
-      console.log(`[Subtitles] 需要为 ${rawId} 查找 IMDb ID，slug=${parsedId.slug}`);
-      const html = await fetchMetaHtml(parsedId.slug);
-      
-      if (!html) {
-        console.warn(`[Subtitles] ⚠️ fetchMetaHtml 获取失败`);
-      } else {
-        const jsonLd = extractJsonLd(html);
-        if (jsonLd && jsonLd.name) {
-          const year = jsonLd.uploadDate ? String(jsonLd.uploadDate).slice(0, 4) : '';
-          imdbId = await resolveSlugToImdb(parsedId.slug, jsonLd.name, year);
-        } else {
-          console.warn(`[Subtitles] ⚠️ 提取 JSON-LD 失败`);
-        }
+    if (rawId.startsWith('tt')) {
+      imdbId = rawId;
+    } else if (rawId.startsWith('nfb_')) {
+      const parts = rawId.split('_');
+      const category = parts[1];
+      const slug = parts.slice(2).join('_');
+
+      console.log(`[Subtitles] 需要 IMDb ID，正在获取 NFB 详情...`);
+      let data = null;
+      if (category === 'film') data = await Adapter.fetchFilmMeta(slug);
+      else if (category === 'series') data = await Adapter.fetchSeriesMeta(slug);
+      else if (category === 'collection') data = await Adapter.fetchCollectionMeta(slug);
+
+      if (data && data.title) {
+        console.log(`[Subtitles] 🔍 反向映射 TMDB: "${data.title}" (${data.year})`);
+        imdbId = await resolveSlugToImdb(slug, data.title, data.year);
       }
     }
 
     if (!imdbId) {
-      console.log(`[Subtitles] ❌ 无法解析 IMDb ID，返回空字幕`);
-      return jsonResponse({ subtitles: [] });
+      console.log(`[Subtitles] ❌ 无法获取 IMDb ID，返回空字幕`);
+      return jsonResponse({ subtitles: [] }, 600);
     }
 
-    console.log(`[Subtitles] 🔍 获取字幕: ${imdbId}`);
     const targetLang = globalThis.__USER_CONFIG.subtitleLang || 'zh-en';
+    console.log(`[Subtitles] 🎯 开始拉取字幕: imdbId=${imdbId}, lang=${targetLang}`);
     
-    // 引入 src/subtitles.js
-    const { getSubtitles } = await import('./subtitles.js');
     const subtitles = await getSubtitles(imdbId, targetLang);
-
+    console.log(`[Subtitles] ✅ 返回 ${subtitles.length} 条字幕`);
+    
     return jsonResponse({ subtitles }, 600);
   }
 
-
+  // 兜底 404
   return new Response('Not Found', { status: 404 });
 }
 
