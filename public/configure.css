@@ -142,3 +142,69 @@ button, .btn-primary {
 .config-preview pre { background: var(--bg); padding: 16px; border-radius: 8px; margin-top: 12px; overflow-x: auto; border: 1px solid var(--border); }
 
 footer { text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 40px; padding-bottom: 20px; }
+
+/* ========================================
+   目录顺序列表
+   ======================================== */
+
+.order-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.order-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  transition: all 0.2s;
+}
+
+.order-item:hover {
+  border-color: var(--text-muted);
+}
+
+.order-item .name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.order-item .controls {
+  display: flex;
+  gap: 4px;
+}
+
+.order-item .controls button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.order-item .controls button:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.order-item .controls button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.order-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}

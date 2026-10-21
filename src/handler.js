@@ -54,8 +54,18 @@ export async function handleRequest(request) {
       if (qv !== null) extras[key] = qv;
     }
 
-    const skip = parseInt(extras.skip || '0', 10);
-    const page = Math.floor(skip / 20) + 1;
+const skip = parseInt(extras.skip || '0', 10);
+
+// ★ P0 修复：防止 Stremio 补页死循环
+// Stremio 在返回不满一页（PAGE_SIZE）时，会用"已加载条数"作为 skip 补页
+// 如果 skip 不是 PAGE_SIZE 的倍数，说明底层数据已到底，返回空让 Stremio 停止
+const PAGE_SIZE = 20;
+if (skip > 0 && skip % PAGE_SIZE !== 0) {
+  console.log(`[Catalog] 🛑 skip=${skip} 非 ${PAGE_SIZE} 倍数，返回空表示到底`);
+  return jsonResponse({ metas: [] }, 60);
+}
+
+const page = Math.floor(skip / PAGE_SIZE) + 1;
     const query = extras.search;
 
     console.log(`[Catalog] 🔍 解析: type=${type}, id=${catalogId}, page=${page}, query="${query || ''}"`);
@@ -79,7 +89,14 @@ export async function handleRequest(request) {
       }
     } else {
       let res;
-      if (catalogId.startsWith('nfb_ch_')) {
+if (catalogId === 'nfb_ch_childrens_film_movies') {
+  console.log(`[Catalog] 🎬 获取 Genre: Children's film (Movie)`);
+  res = await Adapter.fetchByGenre("Children's film", page, 20, true);
+} else if (catalogId === 'nfb_ch_childrens_film_series') {
+  // ★ 底层 genre=Children's film 的 series 数据为 0，直接返回空
+  console.log(`[Catalog] ⚠️ childrens_film_series 无数据源，返回空`);
+  return jsonResponse({ metas: [] }, 60);
+} else if (catalogId.startsWith('nfb_ch_')) {
         const chName = catalogId.replace('nfb_ch_', '').replace('_movies', '').replace('_series', '');
         res = await Adapter.fetchChannel(chName, page);
       } else {
@@ -88,12 +105,24 @@ export async function handleRequest(request) {
       items = res?.data || res?.items || [];
     }
 
-    const filtered = items.filter(item => {
-      if (isSearch) return true;
-      const isMovie = item.type === 'film' || item.category === 'film' || (item.url && item.url.includes('/film/'));
-      const isSeries = item.type === 'series' || item.type === 'collection' || item.category === 'series' || item.category === 'collection' || (item.url && (item.url.includes('/series/') || item.url.includes('/collection/')));
-      return type === 'movie' ? isMovie : isSeries;
-    });
+const filtered = items.filter(item => {
+  if (isSearch) return true;
+
+  // ★ 只过滤确定不可访问的影片
+  // - is_public === false：非公开
+  // - geoblocked === true：地区限制
+  // 注意：buy === true 只表示有实体 DVD 可购买，不代表不能在线播放，故不过滤
+  if (item.availability && item.availability.is_public === false) {
+    return false;
+  }
+  if (item.geoblocked === true) {
+    return false;
+  }
+
+  const isMovie = item.type === 'film' || item.category === 'film' || (item.url && item.url.includes('/film/'));
+  const isSeries = item.type === 'series' || item.type === 'collection' || item.category === 'series' || item.category === 'collection' || (item.url && (item.url.includes('/series/') || item.url.includes('/collection/')));
+  return type === 'movie' ? isMovie : isSeries;
+});
 
     const metas = filtered.map(item => {
       let rawType = item.type || item.category;
@@ -114,7 +143,7 @@ export async function handleRequest(request) {
       };
     });
 
-    console.log(`[Catalog] ✅ 返回 ${metas.length} 条结果`);
+console.log(`[Catalog] ✅ 返回 ${metas.length} 条结果（原始 ${items.length} 条）`);
     return jsonResponse({ metas }, 300);
   }
 

@@ -177,3 +177,37 @@ export async function fetchStream(slug) {
   // Stream 的失效性较强，且可能 403，所以统一缓存 180 秒（含失败标志）
   return fetchWithCache(key, 180, () => fetchRaw(`${CONFIG.NFB_STREAM_API}${slug}/stream`), true);
 }
+
+// ==========================================
+// 6. 新增：按 Genre 拉取 Catalog
+// ==========================================
+export async function fetchByGenre(genre, page = 1, perPage = 20, isMovie = true) {
+  const key = `nfb:catalog:genre:${genre}:${page}:${perPage}:${isMovie}`;
+  return fetchWithCache(key, 600, () => {
+    const params = new URLSearchParams();
+    params.append('include_series_episodes', 'true');
+    
+    // 你抓包提供的完整 include_fields
+    const fields = [
+      'slug', 'duration', 'year', 'thumbnail', 'directors', 'cc', 'dv', 'rating',
+      'coming_soon', 'is_new_release', 'leaving_soon', 'availability', 'geoblocked',
+      'producers', 'year_max', 'year_min', 'seasons_count', 'episodes_count',
+      'cataloging_language', 'story_art_horizontal', 'jacket', 'tagline', 'description',
+      'label', 'title_treatment', 'key_art_square', 'subjects', 'genres', 'extras',
+      'part_of', 'warning', 'ending_credits_timecode', 'opening_credits_timecode', 'teaser'
+    ];
+    fields.forEach(f => params.append('include_fields', f));
+    
+    params.append('locale', 'en');
+    params.append('subset', 'nfb/published');
+    params.append('size', perPage.toString());
+    params.append('page', page.toString());
+    params.append('category', isMovie ? 'film' : 'series');
+    params.append('sort', 'year:desc');
+    params.append('language', 'en');
+    params.append('genre', genre);
+    params.append('duration_min', '600');
+
+    return fetchRaw(`https://publicapi.nfb.ca/api/v5/works?${params.toString()}`);
+  });
+}

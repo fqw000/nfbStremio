@@ -24,18 +24,22 @@
       <p class="hint">勾选你想在 Stremio 中显示的目录。</p>
       
       <div class="channel-grid" id="presetChannels">
-        <label class="channel-item"><input type="checkbox" value="home_new_releases_en" checked><span>New Releases</span></label>
-        <label class="channel-item"><input type="checkbox" value="halloween-movies" checked><span>Halloween Movies</span></label>
-        <label class="channel-item"><input type="checkbox" value="best_of_ani" checked><span>Best of Animation</span></label>
-        <label class="channel-item"><input type="checkbox" value="classics" checked><span>Classics</span></label>
-        <label class="channel-item"><input type="checkbox" value="binge-worthy-series" checked><span>Binge-worthy Series</span></label>
-        <label class="channel-item"><input type="checkbox" value="funny-films" checked><span>Funny Films</span></label>
-        <label class="channel-item"><input type="checkbox" value="hot_topics" checked><span>Hot Topics</span></label>
-        <label class="channel-item"><input type="checkbox" value="spotlight-canadian-musicians" checked><span>Canadian Musicians</span></label>
-        <label class="channel-item"><input type="checkbox" value="the-great-lakes" checked><span>The Great Lakes</span></label>
-        <label class="channel-item"><input type="checkbox" value="classic-docs" checked><span>Classic Docs</span></label>
-        <label class="channel-item"><input type="checkbox" value="the_green_channel" checked><span>The Green Channel</span></label>
+        <label class="channel-item"><input type="checkbox" value="childrens_film"><span>Children's Film</span></label>
+        <label class="channel-item"><input type="checkbox" value="exploreanimation_new_en"><span>New Animated Films</span></label>
+        <label class="channel-item"><input type="checkbox" value="cartoons_for_kids"><span>Cartoons for Kids</span></label>
+        <label class="channel-item"><input type="checkbox" value="best_of_ani"><span>Best of Animation</span></label>
+        <label class="channel-item"><input type="checkbox" value="home_new_releases_en"><span>New Releases</span></label>
+        <label class="channel-item"><input type="checkbox" value="halloween-movies"><span>Halloween Movies</span></label>
+        <label class="channel-item"><input type="checkbox" value="classics"><span>Classics</span></label>
+        <label class="channel-item"><input type="checkbox" value="binge-worthy-series"><span>Binge-worthy Series</span></label>
+        <label class="channel-item"><input type="checkbox" value="funny-films"><span>Funny Films</span></label>
+        <label class="channel-item"><input type="checkbox" value="hot_topics"><span>Hot Topics</span></label>
+        <label class="channel-item"><input type="checkbox" value="spotlight-canadian-musicians"><span>Canadian Musicians</span></label>
+        <label class="channel-item"><input type="checkbox" value="the-great-lakes"><span>The Great Lakes</span></label>
+        <label class="channel-item"><input type="checkbox" value="classic-docs"><span>Classic Docs</span></label>
+        <label class="channel-item"><input type="checkbox" value="the_green_channel"><span>The Green Channel</span></label>
       </div>
+      
     </section>
 
     <!-- 自定义选项 -->
@@ -43,6 +47,13 @@
       <h2><span class="icon">➕</span> 自定义频道</h2>
       <p class="hint">如果你知道其他 Channel 的 slug，请以英文逗号分隔填入（例如：the_great_lakes, hot_topics）。</p>
       <input type="text" id="customChs" placeholder="输入自定义 Channel 名称..." spellcheck="false">
+    </section>
+
+        <!-- 目录顺序 -->
+    <section class="card">
+      <h2><span class="icon">🔀</span> 目录显示顺序</h2>
+      <p class="hint">使用 ↑↓ 调整顺序。勾选/取消频道或添加自定义频道后，此列表会自动更新。</p>
+      <ul id="orderList" class="order-list"></ul>
     </section>
 
     <!-- API Keys -->
